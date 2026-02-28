@@ -1,5 +1,3 @@
-const { Queue } = require('bullmq');
-const IORedis = require('ioredis');
 const { Redis } = require("@upstash/redis");
 const { createClient } = require("@supabase/supabase-js");
 require("dotenv").config();
@@ -8,16 +6,10 @@ require("dotenv").config();
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
 const restRedis = new Redis({ url: process.env.UPSTASH_REDIS_REST_URL, token: process.env.UPSTASH_REDIS_REST_TOKEN });
 
-// BullMQ TCP Connection (Now works on Hotspot!)
-const connection = new IORedis(process.env.UPSTASH_REDIS_TCP_URL, {
-  maxRetriesPerRequest: null,
-  tls: { rejectUnauthorized: false }
-});
-
-const emailQueue = new Queue('email_delivery_queue', { connection });
+// 🚫 REMOVED BullMQ & IORedis from here. This script no longer sends emails directly!
 
 async function startMatchingWorker() {
-  console.log("🕵️ Matching Worker (BullMQ Production) is active...");
+  console.log("🕵️ Matching Worker (Batch Mode) is active...");
 
   while (true) {
     try {
@@ -25,34 +17,43 @@ async function startMatchingWorker() {
       if (!rawData) { await new Promise(r => setTimeout(r, 2000)); continue; }
 
       const jobData = typeof rawData === 'string' ? JSON.parse(rawData) : rawData;
-      const { job_id, sector, location, experience_levels } = jobData;
+      // Extract the job_title from your Redis payload
+const { job_id, job_title, sector, location, experience_levels } = jobData;
 
-      console.log(`🔍 Matching Job: ${job_id}`);
+console.log(`🔍 Matching Job: ${job_id} - ${job_title}`);
 
-      // GIN-indexed matching logic [cite: 25]
-      const { data: matches } = await supabase.rpc('find_matching_users', {
-        input_sector: sector || 'Unknown',
-        input_location: location || 'Unknown',
-        input_experience: experience_levels || 'Unknown'
-      });
+// Pass the job_title into the new RPC function
+const { data: matches, error: rpcError } = await supabase.rpc('find_matching_users', {
+  input_job_title: job_title || '',       // <-- THIS IS THE NEW LINE
+  input_sector: sector || 'Unknown',
+  input_location: location || 'Unknown',
+  input_experience: experience_levels || 'Unknown'
+});
 
       if (matches && matches.length > 0) {
         for (const user of matches) {
-          // IDEMPOTENCY: Check if already alerted [cite: 28, 57]
+          
+          // IDEMPOTENCY: Check if already alerted and drop into the bucket [cite: 28, 57]
           const { error: logError } = await supabase
             .from('alert_delivery_logs')
-            .insert({ user_id: user.user_id, job_alert_id: job_id });
+            .insert({ 
+              user_id: user.user_id, 
+              job_alert_id: job_id,
+              status: 'PENDING' // 👈 NEW: This marks it for the hourly batch
+            });
 
-          if (logError && logError.code === '23505') continue; 
-
-          // HANDOFF: Push to BullMQ Email Queue [cite: 30]
-          await emailQueue.add('send-alert', {
-            email: user.email,
-            job_title: jobData.job_title || "New Job",
-            company: jobData.company_name || "Unknown Company",
-            job_url: jobData.job_url || "#"
-          });
-          console.log(`✅ Alert queued in BullMQ for ${user.email}`);
+          if (logError) {
+            // Postgres error 23505 means the Unique Constraint blocked a duplicate
+            if (logError.code === '23505') {
+               console.log(`⏩ Match already in bucket for ${user.email}, skipping.`);
+            } else {
+               console.error("❌ SUPABASE LOG ERROR:", logError.message);
+            }
+          } else {
+            console.log(`📥 Match safely stored in bucket (PENDING) for ${user.email}`);
+          }
+          
+          // 🚫 REMOVED: emailQueue.add() - The hourly cron script will handle this now.
         }
       }
     } catch (err) {
@@ -60,4 +61,5 @@ async function startMatchingWorker() {
     }
   }
 }
+
 startMatchingWorker();

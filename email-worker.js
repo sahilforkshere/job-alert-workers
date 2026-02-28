@@ -1,52 +1,47 @@
 const { Worker } = require('bullmq');
 const IORedis = require('ioredis');
-const { Resend } = require('resend'); // Import Resend
+const { Resend } = require('resend');
+const { createClient } = require('@supabase/supabase-js'); // NEW
 require("dotenv").config();
 
-// 1. Setup Connections
 const resend = new Resend(process.env.RESEND_API_KEY);
+// NEW: Add Supabase to the email worker
+const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY); 
+
 const connection = new IORedis(process.env.UPSTASH_REDIS_TCP_URL, {
   maxRetriesPerRequest: null,
   tls: { rejectUnauthorized: false }
 });
 
-console.log("📬 BullMQ Email Delivery Worker is active and ready to send...");
-
-// 2. Define the Worker logic
 const emailWorker = new Worker('email_delivery_queue', async job => {
-  const { email, job_title, company, job_url } = job.data;
+  // NEW: Pull logIds from the job data
+  const { email, jobs, logIds } = job.data; 
+
+  const jobHtmlList = jobs.map(j => `...`).join(''); // (Keep your existing HTML mapping here)
 
   try {
-    // 3. Dispatch the Real Email
-    const { data, error } = await resend.emails.send({
-      from: 'Job Alerts <onboarding@resend.dev>', // Use your verified domain in production
+    const { error } = await resend.emails.send({
+      from: 'Job Alerts <notifications@mail.chromateo.com>',
       to: [email],
-      subject: `New Job Match: ${job_title} at ${company}`,
-      html: `
-        <h1>New Job Opportunity!</h1>
-        <p>We found a match for you: <strong>${job_title}</strong> at <strong>${company}</strong>.</p>
-        <p><a href="${job_url}" style="padding: 10px 20px; background-color: #007bff; color: white; text-decoration: none; border-radius: 5px;">View Job Details</a></p>
-        <br>
-        <p>Good luck with your application!</p>
-      `
+      subject: `You have ${jobs.length} new job matches!`,
+      html: `<h2>Latest job matches:</h2>${jobHtmlList}`
     });
 
     if (error) throw new Error(error.message);
     
-    console.log(`📧 Email sent successfully to ${email} for Job ID: ${job.id}`);
+    // NEW: Update the database status to SENT!
+    await supabase
+      .from('alert_delivery_logs')
+      .update({ 
+        status: 'SENT', 
+        sent_at: new Date().toISOString() 
+      })
+      .in('id', logIds);
+
+    console.log(`📧 Successfully sent digest to ${email} and marked as SENT in DB`);
 
   } catch (err) {
-    console.error(`❌ Failed to send email to ${email}:`, err.message);
-    throw err; // Trigger BullMQ retry logic
+    console.error(`❌ Failed to send:`, err.message);
+    throw err; 
   }
-}, { 
-  connection,
-  limiter: {
-    max: 5,        // Conservative limit (5 per second) for Resend free tier
-    duration: 1000 
-  }
-});
-
-// Event Listeners for Monitoring
-emailWorker.on('completed', job => console.log(`✅ Job ${job.id} finalized.`));
-emailWorker.on('failed', (job, err) => console.error(`🚨 Job ${job.id} permanently failed:`, err.message));
+}, { connection, limiter: { max: 5, duration: 1000 } });
