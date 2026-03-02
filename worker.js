@@ -2,33 +2,27 @@ const { Redis } = require("@upstash/redis");
 const { createClient } = require("@supabase/supabase-js");
 require("dotenv").config();
 
-// 1. Connection Setup
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
 const restRedis = new Redis({ url: process.env.UPSTASH_REDIS_REST_URL, token: process.env.UPSTASH_REDIS_REST_TOKEN });
-
-// 🚫 REMOVED BulloMQ & IORedis from here. This script no longer sends emails directly!
 
 async function startMatchingWorker() {
   console.log("🕵️ Matching Worker (Batch Mode) is active...");
 
-while (true) {
+  while (true) {
     try {
-      // 1. Pop the payload from Redis
       const rawData = await restRedis.rpop("matching_queue"); 
       if (!rawData) { await new Promise(r => setTimeout(r, 2000)); continue; }
 
-      // 2. Safely extract just the job_id
       let targetJobId;
       try {
         const parsed = typeof rawData === 'string' ? JSON.parse(rawData) : rawData;
         targetJobId = parsed.job_id || parsed.id;
       } catch (e) {
-        targetJobId = rawData; // Fallback if Redis pushed a raw string UUID
+        targetJobId = rawData; 
       }
 
       console.log(`\n🔍 Popped Job ID: ${targetJobId}`);
 
-      // 3. THE FIX: Fetch the actual job details from the database!
       const { data: currentJob, error: fetchError } = await supabase
         .from('job_alerts')
         .select('*')
@@ -42,7 +36,6 @@ while (true) {
 
       console.log(`✅ DB Fetch Success: ${currentJob.job_title} at ${currentJob.company_name}`);
 
-      // 4. Pass the REAL data into your Full-Text Search RPC
       const { data: matches, error: rpcError } = await supabase.rpc('find_matching_users', {
         input_job_title: currentJob.job_title || '',
         input_sector: currentJob.sector || 'Unknown',
@@ -51,22 +44,28 @@ while (true) {
       });
 
       if (matches && matches.length > 0) {
-        for (const user of matches) {
-          // 5. Drop into the bucket (Idempotency Check)
-          const { error: logError } = await supabase
-            .from('alert_delivery_logs')
-            .insert({ 
-              user_id: user.user_id, 
-              job_alert_id: targetJobId,
-              status: 'PENDING' 
-            });
+        // 🔥 EDGE CASE 3 FIX: Deduplicate multiple preference collisions in memory
+        const uniqueUserIds = [...new Set(matches.map(user => user.user_id))];
 
-          if (logError && logError.code === '23505') {
-               console.log(`⏩ Match already in bucket for ${user.email}, skipping.`);
-          } else if (!logError) {
-            console.log(`📥 Match stored in bucket (PENDING) for ${user.email}`);
-          }
+        // Prepare the bulk payload
+        const insertPayload = uniqueUserIds.map(userId => ({
+          user_id: userId,
+          job_alert_id: targetJobId,
+          status: 'PENDING'
+        }));
+
+        // 🔥 EDGE CASE 1 FIX: Single Bulk Upsert instead of a loop.
+        // The ignoreDuplicates flag gracefully handles the UNIQUE CONSTRAINT [cite: 97] without throwing 23505 errors.
+        const { error: logError } = await supabase
+          .from('alert_delivery_logs')
+          .upsert(insertPayload, { onConflict: 'user_id, job_alert_id', ignoreDuplicates: true });
+
+        if (logError) {
+           console.error(`❌ Bulk Insert Failed:`, logError.message);
+        } else {
+           console.log(`📥 Bulk stored ${insertPayload.length} matches in bucket (PENDING)`);
         }
+
       } else {
          console.log(`🤷‍♂️ No users matched for ${currentJob.job_title}`);
       }
