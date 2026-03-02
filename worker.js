@@ -6,7 +6,7 @@ require("dotenv").config();
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
 const restRedis = new Redis({ url: process.env.UPSTASH_REDIS_REST_URL, token: process.env.UPSTASH_REDIS_REST_TOKEN });
 
-// 🚫 REMOVED BullMQ & IORedis from here. This script no longer sends emails directly!
+// 🚫 REMOVED BulloMQ & IORedis from here. This script no longer sends emails directly!
 
 async function startMatchingWorker() {
   console.log("🕵️ Matching Worker (Batch Mode) is active...");
