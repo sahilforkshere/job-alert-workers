@@ -11,50 +11,64 @@ const restRedis = new Redis({ url: process.env.UPSTASH_REDIS_REST_URL, token: pr
 async function startMatchingWorker() {
   console.log("🕵️ Matching Worker (Batch Mode) is active...");
 
-  while (true) {
+while (true) {
     try {
+      // 1. Pop the payload from Redis
       const rawData = await restRedis.rpop("matching_queue"); 
       if (!rawData) { await new Promise(r => setTimeout(r, 2000)); continue; }
 
-      const jobData = typeof rawData === 'string' ? JSON.parse(rawData) : rawData;
-      // Extract the job_title from your Redis payload
-const { job_id, job_title, sector, location, experience_levels } = jobData;
+      // 2. Safely extract just the job_id
+      let targetJobId;
+      try {
+        const parsed = typeof rawData === 'string' ? JSON.parse(rawData) : rawData;
+        targetJobId = parsed.job_id || parsed.id;
+      } catch (e) {
+        targetJobId = rawData; // Fallback if Redis pushed a raw string UUID
+      }
 
-console.log(`🔍 Matching Job: ${job_id} - ${job_title}`);
+      console.log(`\n🔍 Popped Job ID: ${targetJobId}`);
 
-// Pass the job_title into the new RPC function
-const { data: matches, error: rpcError } = await supabase.rpc('find_matching_users', {
-  input_job_title: job_title || '',       // <-- THIS IS THE NEW LINE
-  input_sector: sector || 'Unknown',
-  input_location: location || 'Unknown',
-  input_experience: experience_levels || 'Unknown'
-});
+      // 3. THE FIX: Fetch the actual job details from the database!
+      const { data: currentJob, error: fetchError } = await supabase
+        .from('job_alerts')
+        .select('*')
+        .eq('id', targetJobId)
+        .single();
+
+      if (fetchError || !currentJob) {
+        console.error(`❌ Could not find job ${targetJobId} in DB. Skipping.`);
+        continue; 
+      }
+
+      console.log(`✅ DB Fetch Success: ${currentJob.job_title} at ${currentJob.company_name}`);
+
+      // 4. Pass the REAL data into your Full-Text Search RPC
+      const { data: matches, error: rpcError } = await supabase.rpc('find_matching_users', {
+        input_job_title: currentJob.job_title || '',
+        input_sector: currentJob.sector || 'Unknown',
+        input_location: currentJob.location || 'Unknown',
+        input_experience: currentJob.experience_levels || 'Unknown'
+      });
 
       if (matches && matches.length > 0) {
         for (const user of matches) {
-          
-          // IDEMPOTENCY: Check if already alerted and drop into the bucket [cite: 28, 57]
+          // 5. Drop into the bucket (Idempotency Check)
           const { error: logError } = await supabase
             .from('alert_delivery_logs')
             .insert({ 
               user_id: user.user_id, 
-              job_alert_id: job_id,
-              status: 'PENDING' // 👈 NEW: This marks it for the hourly batch
+              job_alert_id: targetJobId,
+              status: 'PENDING' 
             });
 
-          if (logError) {
-            // Postgres error 23505 means the Unique Constraint blocked a duplicate
-            if (logError.code === '23505') {
+          if (logError && logError.code === '23505') {
                console.log(`⏩ Match already in bucket for ${user.email}, skipping.`);
-            } else {
-               console.error("❌ SUPABASE LOG ERROR:", logError.message);
-            }
-          } else {
-            console.log(`📥 Match safely stored in bucket (PENDING) for ${user.email}`);
+          } else if (!logError) {
+            console.log(`📥 Match stored in bucket (PENDING) for ${user.email}`);
           }
-          
-          // 🚫 REMOVED: emailQueue.add() - The hourly cron script will handle this now.
         }
+      } else {
+         console.log(`🤷‍♂️ No users matched for ${currentJob.job_title}`);
       }
     } catch (err) {
       console.error("❌ Worker Error:", err.message);
