@@ -19,6 +19,9 @@ async function flushBuckets() {
   const limit = 5000; // 🔥 EDGE CASE 2 FIX: Process in safe memory chunks
   let totalProcessed = 0;
 
+  // 🔥 THE FIX 1: Calculate the exact cutoff time (48 hours ago)
+  const expirationCutoff = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
+
   while (hasMore) {
     // 1. Fetch PENDING logs with Pagination and Access Check
     const { data: pending, error } = await supabase
@@ -27,10 +30,11 @@ async function flushBuckets() {
         id, 
         user_id, 
         profiles!inner(email, has_access), 
-        job_alerts!inner(job_title, company_name, job_url)
-      `)
+        job_alerts!inner(job_title, company_name, job_url, created_at) 
+      `) // 🔥 Added created_at here
       .eq('status', 'PENDING')
       .eq('profiles.has_access', true) // 🔥 EDGE CASE 4 FIX: Ghost Subscriber check 
+      .gte('job_alerts.created_at', expirationCutoff) // 🔥 THE FIX 1: Ignore old jobs
       .range(offset, offset + limit - 1);
 
     if (error) {
@@ -51,23 +55,36 @@ async function flushBuckets() {
       return acc;
     }, {});
 
-    // 3. Safely Push to BullMQ (Includes Infinite Loop Fix from earlier)
+    // 3. Safely Push to BullMQ
     for (const userId in buckets) {
       const { email, jobs, logIds } = buckets[userId];
       
+      // 🔥 THE FIX 2: Payload Capping (Roll-over Queue)
+      const MAX_JOBS = 30;
+      const jobsToSend = jobs.slice(0, MAX_JOBS);
+      const logIdsToUpdate = logIds.slice(0, MAX_JOBS);
+      const overflowCount = jobs.length > MAX_JOBS ? jobs.length - MAX_JOBS : 0;
+
       try {
-        const batchHash = crypto.createHash('sha256').update(logIds.sort().join(',')).digest('hex');
+        const batchHash = crypto.createHash('sha256').update(logIdsToUpdate.sort().join(',')).digest('hex');
         const uniqueJobId = `digest_${userId}_${batchHash}`;
 
-        await emailQueue.add('hourly-digest', { email, jobs, logIds }, { 
+        // 🔥 Updated payload to include sliced jobs, sliced IDs, and overflowCount
+        await emailQueue.add('hourly-digest', { 
+          email, 
+          jobs: jobsToSend, 
+          logIds: logIdsToUpdate,
+          overflowCount
+        }, { 
           jobId: uniqueJobId,
           removeOnComplete: true 
         });
 
+        // 🔥 Update ONLY the sliced logIds to QUEUED
         const { error: updateError } = await supabase
           .from('alert_delivery_logs')
           .update({ status: 'QUEUED' })
-          .in('id', logIds);
+          .in('id', logIdsToUpdate);
 
         if (updateError) throw updateError;
         totalProcessed++;
