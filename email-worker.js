@@ -13,7 +13,7 @@ const connection = new IORedis(process.env.UPSTASH_REDIS_TCP_URL, {
 });
 
 const emailWorker = new Worker('email_delivery_queue', async job => {
-  // 🔥 FIX 2: Destructure the overflowCount flag from the payload
+  //  Destructure the overflowCount flag from the payload
   const { email, jobs, logIds, overflowCount } = job.data; 
 
   const jobHtmlList = jobs.map(j => {
@@ -34,7 +34,7 @@ const emailWorker = new Worker('email_delivery_queue', async job => {
     `;
   }).join('');
 
-  // 🔥 FIX 2: Conditionally render the Overflow Banner
+  // : Conditionally render the Overflow Banner
   const overflowHtml = overflowCount > 0 
     ? `<div style="margin-top: 20px; padding: 12px; background-color: #ebf8ff; border-radius: 6px; text-align: center; border: 1px solid #90cdf4;">
         <p style="color: #2b6cb0; margin: 0; font-weight: bold; font-size: 16px;">
@@ -50,7 +50,7 @@ const emailWorker = new Worker('email_delivery_queue', async job => {
     const { error, data } = await resend.emails.send({
       from: 'Job Alerts <notifications@mail.chromateo.com>',
       to: [email],
-      // 🔥 FIX 2: Dynamic subject line to include total count
+      // : Dynamic subject line to include total count
       subject: `🚀 ${jobs.length + (overflowCount || 0)} New Job Matches for You`,
       html: `
         <div style="max-width: 600px; margin: 0 auto; font-family: sans-serif;">
@@ -65,7 +65,7 @@ const emailWorker = new Worker('email_delivery_queue', async job => {
       `
     });
 
-    // 🔥 FIX 1: GRANULAR POISON PILL CHECK (Inspect API Response)
+    //  : GRANULAR POISON PILL CHECK (Inspect API Response)
     if (error) {
       const errCode = error.statusCode || error.code;
       
@@ -105,9 +105,9 @@ const emailWorker = new Worker('email_delivery_queue', async job => {
     console.error(`❌ Transient failure during dispatch for ${email}, will retry:`, err.message);
     throw err; // NACK (Negative Acknowledgement): Trigger BullMQ retry mechanism
   }
-}, { connection, limiter: { max: 5, duration: 1000 } }); // (Hardened rate limit detail)
+}, { connection, limiter: { max: 1 , duration: 1000 } }); // (Hardened rate limit detail)
 
 emailWorker.on('failed', (job, err) => {
   console.log(`❌ Job ${job.id} (Email: ${job.data.email}) failed permanently after max retries: ${err.message}`);
-  // You might want to log this to your database's `error_log` table here.
+ 
 });
