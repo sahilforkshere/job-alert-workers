@@ -16,25 +16,27 @@ async function flushBuckets() {
 
   let hasMore = true;
   let offset = 0;
-  const limit = 5000; // 🔥 EDGE CASE 2 FIX: Process in safe memory chunks
+  const limit = 5000; 
   let totalProcessed = 0;
 
-  // 🔥 THE FIX 1: Calculate the exact cutoff time (48 hours ago)
+  // The 48-hour cutoff
   const expirationCutoff = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
 
+  // ==========================================
+  // PHASE 1: Process and Queue Valid Jobs
+  // ==========================================
   while (hasMore) {
-    // 1. Fetch PENDING logs with Pagination and Access Check
     const { data: pending, error } = await supabase
-      .from('alert_delivery_logs') // [cite: 94]
+      .from('alert_delivery_logs')
       .select(`
         id, 
         user_id, 
         profiles!inner(email, has_access), 
         job_alerts!inner(job_title, company_name, job_url, created_at) 
-      `) // 🔥 Added created_at here
+      `)
       .eq('status', 'PENDING')
-      .eq('profiles.has_access', true) // 🔥 EDGE CASE 4 FIX: Ghost Subscriber check 
-      .gte('job_alerts.created_at', expirationCutoff) // 🔥 THE FIX 1: Ignore old jobs
+      .eq('profiles.has_access', true)
+      .gte('job_alerts.created_at', expirationCutoff) // Only grab fresh jobs
       .range(offset, offset + limit - 1);
 
     if (error) {
@@ -47,7 +49,6 @@ async function flushBuckets() {
       break;
     }
 
-    // 2. Group by User ID
     const buckets = pending.reduce((acc, item) => {
       if (!acc[item.user_id]) acc[item.user_id] = { email: item.profiles.email, jobs: [], logIds: [] };
       acc[item.user_id].jobs.push(item.job_alerts);
@@ -55,11 +56,9 @@ async function flushBuckets() {
       return acc;
     }, {});
 
-    // 3. Safely Push to BullMQ
     for (const userId in buckets) {
       const { email, jobs, logIds } = buckets[userId];
       
-      // 🔥 THE FIX 2: Payload Capping (Roll-over Queue)
       const MAX_JOBS = 30;
       const jobsToSend = jobs.slice(0, MAX_JOBS);
       const logIdsToUpdate = logIds.slice(0, MAX_JOBS);
@@ -69,7 +68,6 @@ async function flushBuckets() {
         const batchHash = crypto.createHash('sha256').update(logIdsToUpdate.sort().join(',')).digest('hex');
         const uniqueJobId = `digest_${userId}_${batchHash}`;
 
-        // 🔥 Updated payload to include sliced jobs, sliced IDs, and overflowCount
         await emailQueue.add('hourly-digest', { 
           email, 
           jobs: jobsToSend, 
@@ -80,7 +78,6 @@ async function flushBuckets() {
           removeOnComplete: true 
         });
 
-        // 🔥 Update ONLY the sliced logIds to QUEUED
         const { error: updateError } = await supabase
           .from('alert_delivery_logs')
           .update({ status: 'QUEUED' })
@@ -94,16 +91,63 @@ async function flushBuckets() {
       }
     }
 
-    // Move to the next page of results
     if (pending.length < limit) {
-       hasMore = false; // Last page reached
+       hasMore = false; 
     } else {
        offset += limit; 
     }
   }
   
-  console.log(`✅ Successfully batched and queued emails for ${totalProcessed} users.`);
+  console.log(`✅ Queued emails for ${totalProcessed} users.`);
+
+  // ==========================================
+  // PHASE 2: Mark Expired Jobs
+  // ==========================================
+  console.log("🧹 Checking for jobs older than 48 hours to mark as EXPIRED...");
+  await cleanUpExpired(expirationCutoff);
+
   process.exit(0); 
+}
+
+// Helper function to handle the expiration cleanup safely in chunks
+async function cleanUpExpired(expirationCutoff) {
+  let hasMoreExpired = true;
+  let totalExpired = 0;
+
+  while (hasMoreExpired) {
+    const { data: expiredLogs, error: fetchError } = await supabase
+      .from('alert_delivery_logs')
+      .select(`id, job_alerts!inner(created_at)`)
+      .eq('status', 'PENDING')
+      .lt('job_alerts.created_at', expirationCutoff) // Grab the old ones
+      .limit(1000); // Chunk by 1000 to avoid DB strain
+
+    if (fetchError) {
+      console.error("❌ Error fetching expired logs:", fetchError.message);
+      break;
+    }
+
+    if (!expiredLogs || expiredLogs.length === 0) {
+      hasMoreExpired = false;
+      break;
+    }
+
+    const idsToUpdate = expiredLogs.map(log => log.id);
+
+    const { error: updateError } = await supabase
+      .from('alert_delivery_logs')
+      .update({ status: 'EXPIRED' })
+      .in('id', idsToUpdate);
+
+    if (updateError) {
+      console.error("❌ Error updating expired logs:", updateError.message);
+      break;
+    }
+
+    totalExpired += idsToUpdate.length;
+  }
+
+  console.log(`🏷️  Marked ${totalExpired} old PENDING logs as EXPIRED.`);
 }
 
 flushBuckets();
