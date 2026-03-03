@@ -105,7 +105,7 @@ const emailWorker = new Worker('email_delivery_queue', async job => {
     console.error(`❌ Transient failure during dispatch for ${email}, will retry:`, err.message);
     throw err; // NACK (Negative Acknowledgement): Trigger BullMQ retry mechanism
   }
-}, { connection, limiter: { max: 1 , duration: 1000 } }); // (Hardened rate limit detail)
+}, { connection, limiter: { max: 1 , duration: 1000 } }); // Rate limit: 1 email per second to respect Resend's API limits
 
 emailWorker.on('failed', (job, err) => {
   console.log(`❌ Job ${job.id} (Email: ${job.data.email}) failed permanently after max retries: ${err.message}`);
