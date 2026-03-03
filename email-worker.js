@@ -20,17 +20,31 @@ const emailWorker = new Worker('email_delivery_queue', async job => {
     const title = j.job_title || "New Job Opportunity";
     const company = j.company_name || "Hiring Company";
     const url = j.job_url || "#";
-    const location = j.location || "Remote / On-site"; // Fallback if location isn't provided
+    const location = j.location || "Remote / On-site"; 
     
-    // Using logo.dev's name search endpoint (Requires LOGO_DEV_PUBLISHABLE_KEY in .env)
-    const logoUrl = `https://img.logo.dev/name/${encodeURIComponent(company)}?token=${process.env.LOGO_DEV_PUBLISHABLE_KEY}&size=128&format=png`;
+    // 1. Dynamically extract the root domain from the job_url
+    let domain = "";
+    try {
+      if (url.startsWith('http')) {
+        const parsedUrl = new URL(url);
+        // Extracts the hostname and removes 'www.' (e.g., 'careers.microsoft.com' becomes 'microsoft.com')
+        domain = parsedUrl.hostname.replace(/^www\./, ''); 
+      }
+    } catch (err) {
+      // Silently handle any invalid URLs
+    }
 
-    // Email-safe Table Layout to mimic the screenshot
+    // 2. Fetch from Google Favicon (Zero Auth!). Fallback to UI-Avatars if the URL was missing/invalid.
+    const logoUrl = domain 
+      ? `https://www.google.com/s2/favicons?domain=${domain}&sz=128`
+      : `https://ui-avatars.com/api/?name=${encodeURIComponent(company)}&background=f8fafc&color=475569&size=128`;
+
+    // Email-safe Table Layout 
     return `
       <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom: 24px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
         <tr>
           <td width="64" valign="top" style="padding-right: 16px;">
-            <img src="${logoUrl}" alt="${company} logo" width="64" height="64" style="display: block; width: 64px; height: 64px; object-fit: contain; background-color: #ffffff; border-radius: 4px; border: 1px solid #e2e8f0;" />
+            <img src="${logoUrl}" alt="${company} logo" width="64" height="64" style="display: block; width: 64px; height: 64px; object-fit: contain; background-color: #ffffff; border-radius: 8px; border: 1px solid #e2e8f0; padding: 4px;" />
           </td>
           
           <td valign="middle">
