@@ -12,7 +12,7 @@ const connection = new IORedis(process.env.UPSTASH_REDIS_TCP_URL, {
 const emailQueue = new Queue('email_delivery_queue', { connection });
 
 async function flushBuckets() {
-  console.log("⏳ Checking for pending jobs to batch...");
+  console.log("Checking for pending jobs to batch...");
 
   let hasMore = true;
   let offset = 0;
@@ -32,7 +32,7 @@ async function flushBuckets() {
         id, 
         user_id, 
         profiles!inner(email, has_access), 
-        job_alerts!inner(job_title, company_name, job_url, created_at) 
+        job_alerts!inner(job_title, company_name, job_url, location, created_at) 
       `)
       .eq('status', 'PENDING')
       .eq('profiles.has_access', true)
@@ -40,7 +40,7 @@ async function flushBuckets() {
       .range(offset, offset + limit - 1);
 
     if (error) {
-      console.error("❌ DB Fetch Error:", error);
+      console.error("DB Fetch Error:", error);
       process.exit(1);
     }
 
@@ -87,7 +87,7 @@ async function flushBuckets() {
         totalProcessed++;
         
       } catch (err) {
-        console.error(`⚠️ Failed to process batch for user ${userId}:`, err.message);
+        console.error(`Failed to process batch for user ${userId}:`, err.message);
       }
     }
 
@@ -98,12 +98,12 @@ async function flushBuckets() {
     }
   }
   
-  console.log(`✅ Queued emails for ${totalProcessed} users.`);
+  console.log(`Queued emails for ${totalProcessed} users.`);
 
   // ==========================================
   // PHASE 2: Mark Expired Jobs
   // ==========================================
-  console.log("🧹 Checking for jobs older than 48 hours to mark as EXPIRED...");
+  console.log("Checking for jobs older than 48 hours to mark as EXPIRED...");
   await cleanUpExpired(expirationCutoff);
 
   process.exit(0); 
@@ -123,7 +123,7 @@ async function cleanUpExpired(expirationCutoff) {
       .limit(1000); // Chunk by 1000 to avoid DB strain
 
     if (fetchError) {
-      console.error("❌ Error fetching expired logs:", fetchError.message);
+      console.error("Error fetching expired logs:", fetchError.message);
       break;
     }
 
@@ -140,14 +140,14 @@ async function cleanUpExpired(expirationCutoff) {
       .in('id', idsToUpdate);
 
     if (updateError) {
-      console.error("❌ Error updating expired logs:", updateError.message);
+      console.error("Error updating expired logs:", updateError.message);
       break;
     }
 
     totalExpired += idsToUpdate.length;
   }
 
-  console.log(`🏷️  Marked ${totalExpired} old PENDING logs as EXPIRED.`);
+  console.log(`Marked ${totalExpired} old PENDING logs as EXPIRED.`);
 }
 
 flushBuckets();
