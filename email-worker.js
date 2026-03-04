@@ -88,10 +88,15 @@ const emailWorker = new Worker('email_delivery_queue', async job => {
           
           ${overflowHtml} 
           
-          <p style="font-size: 12px; color: #a0aec0; margin-top: 40px; text-align: center; line-height: 1.5;">
-            You are receiving this because of your job alert settings.<br>
-            <a href="#" style="color: #0066cc; text-decoration: none;">Subscribe to job_alerts</a> to get a better frequency of mails.
-          </p>
+          <div style="margin-top: 40px; padding-top: 20px; border-top: 1px solid #e2e8f0; text-align: center;">
+            <p style="font-size: 12px; color: #a0aec0; line-height: 1.6; margin: 0 0 8px 0;">
+              You are receiving this email because you opted into notifications.<br>
+              <a href="{{COMPANY_SETTINGS_URL}}" style="color: #0066cc; text-decoration: underline;">Subscribe to Chromateo</a> to get regular, personalized job alerts tailored to your career goals.
+            </p>
+            <p style="font-size: 12px; margin: 0;">
+              <a href="{{UNSUBSCRIBE_URL}}" style="color: #a0aec0; text-decoration: underline;">Unsubscribe from these alerts</a>
+            </p>
+          </div>
         </div>
       `
     });
