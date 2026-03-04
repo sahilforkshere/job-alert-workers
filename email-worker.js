@@ -66,7 +66,7 @@ const emailWorker = new Worker('email_delivery_queue', async job => {
   const overflowHtml = overflowCount > 0 
     ? `<div style="margin-top: 20px; padding: 12px; background-color: #ebf8ff; border-radius: 6px; text-align: center; border: 1px solid #90cdf4;">
         <p style="color: #2b6cb0; margin: 0; font-weight: bold; font-size: 16px;">
-          🔥 And ${overflowCount} more matches! 
+          And ${overflowCount} more matches! 
         </p>
         <p style="color: #4a5568; font-size: 14px; margin: 4px 0 0 0;">
           Log in to your dashboard to view all your opportunities.
@@ -78,7 +78,7 @@ const emailWorker = new Worker('email_delivery_queue', async job => {
     const { error, data } = await resend.emails.send({
       from: 'Job Alerts <notifications@mail.chromateo.com>',
       to: [email],
-      subject: `🚀 ${jobs.length + (overflowCount || 0)} New Job Matches for You`,
+      subject: `${jobs.length + (overflowCount || 0)} New Job Matches for You`,
       html: `
         <div style="max-width: 600px; margin: 0 auto; padding: 20px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
           <h2 style="color: #1a202c; font-size: 22px; margin-top: 0;">Latest Job Matches</h2>
@@ -88,8 +88,9 @@ const emailWorker = new Worker('email_delivery_queue', async job => {
           
           ${overflowHtml} 
           
-          <p style="font-size: 12px; color: #a0aec0; margin-top: 40px; text-align: center;">
-            You are receiving this because of your job alert settings.
+          <p style="font-size: 12px; color: #a0aec0; margin-top: 40px; text-align: center; line-height: 1.5;">
+            You are receiving this because of your job alert settings.<br>
+            <a href="#" style="color: #0066cc; text-decoration: none;">Subscribe to job_alerts</a> to get a better frequency of mails.
           </p>
         </div>
       `
@@ -100,7 +101,7 @@ const emailWorker = new Worker('email_delivery_queue', async job => {
       const errCode = error.statusCode || error.code;
       
       if (errCode === 400 || errCode === 403 || errCode === 422) {
-        console.error(`🛑 Terminal Error for ${email}: ${error.message}. Skipping retry (ACK Job).`);
+        console.error(`Terminal Error for ${email}: ${error.message}. Skipping retry (ACK Job).`);
         
         await supabase
           .from('alert_delivery_logs')
@@ -124,15 +125,15 @@ const emailWorker = new Worker('email_delivery_queue', async job => {
 
     if (updateError) throw updateError; 
 
-    console.log(`📧 Successfully sent digest to ${email} (including ${overflowCount || 0} overflow) and marked as SENT in DB`);
+    console.log(`Successfully sent digest to ${email} (including ${overflowCount || 0} overflow) and marked as SENT in DB`);
     return data;
 
   } catch (err) {
-    console.error(`❌ Transient failure during dispatch for ${email}, will retry:`, err.message);
+    console.error(`Transient failure during dispatch for ${email}, will retry:`, err.message);
     throw err; 
   }
 }, { connection, limiter: { max: 1 , duration: 1000 } }); 
 
 emailWorker.on('failed', (job, err) => {
-  console.log(`❌ Job ${job.id} (Email: ${job.data.email}) failed permanently after max retries: ${err.message}`);
+  console.log(`Job ${job.id} (Email: ${job.data.email}) failed permanently after max retries: ${err.message}`);
 });
