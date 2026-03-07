@@ -47,7 +47,7 @@ async function flushBuckets() {
       `)
       .eq('status', 'PENDING')
       .eq('profiles.has_access', true)
-      .gte('job_alerts.created_at', expirationCutoff) // Only grab fresh jobs
+      .gte('job_alerts.created_at', expirationCutoff)
       .range(offset, offset + limit - 1);
 
     if (error) {
@@ -120,7 +120,6 @@ async function flushBuckets() {
   process.exit(0); 
 }
 
-// Helper function to handle the expiration cleanup safely in chunks
 async function cleanUpExpired(expirationCutoff) {
   let hasMoreExpired = true;
   let totalExpired = 0;
@@ -130,8 +129,8 @@ async function cleanUpExpired(expirationCutoff) {
       .from('alert_delivery_logs')
       .select(`id, job_alerts!inner(created_at)`)
       .eq('status', 'PENDING')
-      .lt('job_alerts.created_at', expirationCutoff) // Grab the old ones
-      .limit(1000); // Chunk by 1000 to avoid DB strain
+      .lt('job_alerts.created_at', expirationCutoff)
+      .limit(1000);
 
     if (fetchError) {
       console.error("Error fetching expired logs:", fetchError.message);
