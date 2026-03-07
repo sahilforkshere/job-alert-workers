@@ -44,8 +44,8 @@ async function startMatchingWorker() {
         input_sector: toArray(currentJob.sector),
         input_location: toArray(currentJob.location),
         input_experience: toArray(currentJob.experience_levels),
-        input_work_mode: toArray(currentJob.work_mode), // 👈 NEW
-        input_job_type: toArray(currentJob.job_type)
+        // input_work_mode: toArray(currentJob.work_mode), // 👈 NEW
+        // input_job_type: toArray(currentJob.job_type)
       });
 
       if (rpcError) {
