@@ -20,7 +20,12 @@ const emailWorker = new Worker('email_delivery_queue', async job => {
     const title = j.job_title || "New Job Opportunity";
     const company = j.company_name || "Hiring Company";
     const url = j.job_url || "#";
-    const location = j.location || "Remote / On-site"; 
+    
+    // 🛠️ FIX: Safely handle location whether it arrives as an array or a string
+    let location = "Remote / On-site";
+    if (j.location) {
+        location = Array.isArray(j.location) ? j.location.join(', ') : j.location;
+    }
     
     // 1. Dynamically extract the root domain from the job_url
     let domain = "";
