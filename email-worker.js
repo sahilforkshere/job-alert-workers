@@ -19,12 +19,24 @@ const emailWorker = new Worker('email_delivery_queue', async job => {
   const jobHtmlList = jobs.map(j => {
     const title = j.job_title || "New Job Opportunity";
     const company = j.company_name || "Hiring Company";
-    const url = j.job_url || "#";
     
-    // 🛠️ FIX: Safely handle location whether it arrives as an array or a string
-    let location = "Remote / On-site";
-    if (j.location) {
-        location = Array.isArray(j.location) ? j.location.join(', ') : j.location;
+    // 🌟 FIX 1: Safely extract the first URL from the new source_urls array
+    const url = (j.source_urls && j.source_urls.length > 0) ? j.source_urls[0] : "#";
+    
+    // 🌟 FIX 2: Intelligently combine split location fields and work mode
+    let locationParts = [];
+    if (j.location_city && j.location_city !== 'NULL') locationParts.push(j.location_city);
+    if (j.location_country && j.location_country !== 'NULL') locationParts.push(j.location_country);
+    
+    let location = locationParts.join(', ');
+    
+    // Append work mode (e.g., "Bangalore, India • HYBRID") or use it standalone if city is missing
+    if (j.work_mode && j.work_mode !== 'NULL') {
+      location = location ? `${location} &middot; ${j.work_mode}` : j.work_mode;
+    }
+    
+    if (!location) {
+      location = "Location Not Specified";
     }
     
     // 1. Dynamically extract the root domain from the job_url

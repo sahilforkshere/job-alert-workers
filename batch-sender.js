@@ -32,7 +32,20 @@ async function flushBuckets() {
         id, 
         user_id, 
         profiles!inner(email, has_access), 
-        job_alerts!inner(job_title, company_name, job_url, location, created_at) 
+        
+        -- 🌟 UPDATED: Grabbing the new schema columns instead of the old ones 🌟
+        job_alerts!inner(
+          job_title, 
+          company_name, 
+          source_urls, 
+          location_city, 
+          location_country, 
+          work_mode, 
+          job_type, 
+          industry, 
+          experience, 
+          created_at
+        ) 
       `)
       .eq('status', 'PENDING')
       .eq('profiles.has_access', true)

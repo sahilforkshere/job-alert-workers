@@ -36,16 +36,16 @@ async function startMatchingWorker() {
 
       console.log(`✅ DB Fetch Success: ${currentJob.job_title} at ${currentJob.company_name}`);
 
-      // Helper to guarantee array format for PostgreSQL TEXT[] arguments
-      const toArray = (val) => Array.isArray(val) ? val : (val ? [val] : ['Unknown']);
-
+      // 🌟 UPDATED RPC CALL 🌟
+      // Passing flat text strings directly. Defaulting to 'NULL' if the AI missed a field.
       const { data: matches, error: rpcError } = await supabase.rpc('find_matching_users', {
         input_job_title: currentJob.job_title || '',
-        input_sector: toArray(currentJob.sector),
-        input_location: toArray(currentJob.location),
-        input_experience: toArray(currentJob.experience_levels),
-        // input_work_mode: toArray(currentJob.work_mode), // 👈 NEW
-        // input_job_type: toArray(currentJob.job_type)
+        input_industry: currentJob.industry || 'NULL',
+        input_experience: currentJob.experience || 'NULL',
+        input_location_city: currentJob.location_city || 'NULL',
+        input_location_country: currentJob.location_country || 'NULL',
+        input_work_mode: currentJob.work_mode || 'NULL',
+        input_job_type: currentJob.job_type || 'NULL'
       });
 
       if (rpcError) {
