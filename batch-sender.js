@@ -32,8 +32,6 @@ async function flushBuckets() {
         id, 
         user_id, 
         profiles!inner(email, has_access), 
-        
-        -- 🌟 UPDATED: Grabbing the new schema columns instead of the old ones 🌟
         job_alerts!inner(
           job_title, 
           company_name, 
