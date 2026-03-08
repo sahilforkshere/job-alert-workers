@@ -35,6 +35,7 @@ async function flushBuckets() {
         job_alerts!inner(
           job_title, 
           company_name, 
+          job_description,
           source_urls, 
           location_city, 
           location_country, 
