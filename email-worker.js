@@ -21,19 +21,6 @@ const emailWorker = new Worker('email_delivery_queue', async job => {
     const industry = j.industry && j.industry !== 'NULL' ? j.industry : "Not Specified";
     const experience = j.experience && j.experience !== 'NULL' ? j.experience : "Any Experience";
     
-    // --- NEW: Sanitize and Truncate Job Description ---
-    // 1. Remove HTML tags using regex (RemoteOK fix)
-    // 2. Normalize whitespace
-    const cleanDesc = (j.job_description || '')
-      .replace(/<[^>]*>?/gm, '') 
-      .replace(/\s+/g, ' ')      
-      .trim();
-
-    // 3. Truncate to 180 characters for the digest view
-    const truncatedDesc = cleanDesc.length > 180 
-      ? cleanDesc.substring(0, 180) + '...' 
-      : cleanDesc;
-
     // Extract URL
     const url = (j.source_urls && j.source_urls.length > 0) ? j.source_urls[0] : "#";
     
@@ -61,12 +48,6 @@ const emailWorker = new Worker('email_delivery_queue', async job => {
               <div style="color: #4a5568; font-size: 15px; font-weight: 500; margin-bottom: 8px;">
                 ${company} <span style="color: #cbd5e0; margin: 0 6px;">&bull;</span> ${industry}
               </div>
-
-              ${truncatedDesc ? `
-              <div style="color: #4a5568; font-size: 14px; line-height: 1.5; margin-bottom: 12px;">
-                ${truncatedDesc}
-              </div>
-              ` : ''}
 
               <div style="color: #718096; font-size: 14px; margin-bottom: 12px;">
                 <strong>Location:</strong> ${location}
