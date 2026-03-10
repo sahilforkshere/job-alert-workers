@@ -37,7 +37,7 @@ async function startMatchingWorker() {
       console.log(`✅ DB Fetch Success: ${currentJob.job_title} at ${currentJob.company_name}`);
 
       // 🌟 UPDATED RPC CALL 🌟
-      // Passing flat text strings directly. Defaulting to 'NULL' if the AI missed a field.
+      // Passing flat text strings directly, plus the new keywords array!
       const { data: matches, error: rpcError } = await supabase.rpc('find_matching_users', {
         input_job_title: currentJob.job_title || '',
         input_industry: currentJob.industry || 'NULL',
@@ -45,7 +45,8 @@ async function startMatchingWorker() {
         input_location_city: currentJob.location_city || 'NULL',
         input_location_country: currentJob.location_country || 'NULL',
         input_work_mode: currentJob.work_mode || 'NULL',
-        input_job_type: currentJob.job_type || 'NULL'
+        input_job_type: currentJob.job_type || 'NULL',
+        input_keywords: currentJob.keywords || null // 🌟 THE NEW SEARCH ENGINE ARRAY
       });
 
       if (rpcError) {
@@ -57,14 +58,14 @@ async function startMatchingWorker() {
         // Deduplicate multiple preference collisions in memory
         const uniqueUserIds = [...new Set(matches.map(user => user.user_id))];
 
-        // Prepare the bulk payload
+        // Prepare the bulk payload for the alert_delivery_logs table
         const insertPayload = uniqueUserIds.map(userId => ({
           user_id: userId,
           job_alert_id: targetJobId,
           status: 'PENDING'
         }));
 
-        // Single Bulk Upsert instead of a loop.
+        // Single Bulk Upsert to safely handle idempotency constraints
         const { error: logError } = await supabase
           .from('alert_delivery_logs')
           .upsert(insertPayload, { onConflict: 'user_id, job_alert_id', ignoreDuplicates: true });

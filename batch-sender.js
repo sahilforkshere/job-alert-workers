@@ -15,7 +15,6 @@ async function flushBuckets() {
   console.log("Checking for pending jobs to batch...");
 
   let hasMore = true;
-  let offset = 0;
   const limit = 5000; 
   let totalProcessed = 0;
 
@@ -48,7 +47,8 @@ async function flushBuckets() {
       .eq('status', 'PENDING')
       .eq('profiles.has_access', true)
       .gte('job_alerts.created_at', expirationCutoff)
-      .range(offset, offset + limit - 1);
+      // 🌟 FIX: Removed offset/range. Just grab the top 5000 remaining pending rows.
+      .limit(limit);
 
     if (error) {
       console.error("DB Fetch Error:", error);
@@ -79,6 +79,7 @@ async function flushBuckets() {
         const batchHash = crypto.createHash('sha256').update(logIdsToUpdate.sort().join(',')).digest('hex');
         const uniqueJobId = `digest_${userId}_${batchHash}`;
 
+        // 🌟 Adds the bulk jobs payload to BullMQ for the Sending Worker
         await emailQueue.add('hourly-digest', { 
           email, 
           jobs: jobsToSend, 
@@ -102,11 +103,11 @@ async function flushBuckets() {
       }
     }
 
+    // 🌟 FIX: If we got fewer rows back than our limit, it means the pool is empty. 
+    // We no longer need to increment an offset.
     if (pending.length < limit) {
        hasMore = false; 
-    } else {
-       offset += limit; 
-    }
+    } 
   }
   
   console.log(`Queued emails for ${totalProcessed} users.`);
