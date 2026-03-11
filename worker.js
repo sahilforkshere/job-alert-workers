@@ -39,14 +39,14 @@ async function startMatchingWorker() {
       // 🌟 UPDATED RPC CALL 🌟
       // Passing flat text strings directly, plus the new keywords array!
       const { data: matches, error: rpcError } = await supabase.rpc('find_matching_users', {
-        input_job_title: currentJob.job_title || '',
+    //    input_job_title: currentJob.job_title || '',
         input_industry: currentJob.industry || 'NULL',
         input_experience: currentJob.experience || 'NULL',
         input_location_city: currentJob.location_city || 'NULL',
         input_location_country: currentJob.location_country || 'NULL',
         input_work_mode: currentJob.work_mode || 'NULL',
         input_job_type: currentJob.job_type || 'NULL',
-        input_keywords: currentJob.keywords || null // 🌟 THE NEW SEARCH ENGINE ARRAY
+        //input_keywords: currentJob.keywords || null // 🌟 THE NEW SEARCH ENGINE ARRAY
       });
 
       if (rpcError) {
